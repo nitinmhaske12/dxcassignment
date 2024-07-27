@@ -1,0 +1,72 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Resources:
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: LambdaExecutionRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/AmazonSSMReadOnlyAccess
+
+  ExerciseLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: exercise-lambda
+      Handler: index.lambda_handler
+      Runtime: python3.8
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+
+          def lambda_handler(event, context):
+              ssm_client = boto3.client('ssm')
+              s3_client = boto3.client('s3')
+              response = ssm_client.get_parameter(Name='/UserName', WithDecryption=False)
+              parameter_value = response['Parameter']['Value']
+
+              bucket_name = os.environ['nitindemodxcbucket']
+              file_name = 'parameter.txt'
+              s3_client.put_object(Bucket=bucket_name, Key=file_name, Body=parameter_value)
+
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps('Parameter stored successfully!')
+              }
+
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref S3Bucket
+
+  S3Bucket:
+    Type: AWS::S3::Bucket
+
+  LambdaFunctionInvokePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: LambdaInvokePolicy
+      Roles:
+        - !Ref LambdaExecutionRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - ssm:GetParameter
+              - s3:PutObject
+            Resource: "*"
+
+Outputs:
+  LambdaFunctionArn:
+    Description: "ARN of the Lambda Function"
+    Value: !GetAtt ExerciseLambdaFunction.Arn
